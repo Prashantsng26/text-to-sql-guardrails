@@ -1,0 +1,408 @@
+{
+  "database_type": "duckdb",
+  "database_path": "ecommerce.duckdb",
+  "tables": {
+    "customers": {
+      "name": "customers",
+      "description": "Customer profiles, account creation date, geographic country, and loyalty tier.",
+      "row_count": 60,
+      "columns": [
+        {
+          "name": "customer_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": true,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "first_name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "last_name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "email",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "country",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Canada",
+            "France",
+            "Germany",
+            "India",
+            "UK",
+            "USA"
+          ]
+        },
+        {
+          "name": "customer_tier",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Bronze",
+            "Gold",
+            "Platinum",
+            "Silver"
+          ]
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        }
+      ],
+      "primary_keys": [
+        "customer_id"
+      ],
+      "foreign_keys": []
+    },
+    "orders": {
+      "name": "orders",
+      "description": "Customer purchase orders with timestamps, order statuses, payment methods, total amounts, and shipping fees.",
+      "row_count": 100,
+      "columns": [
+        {
+          "name": "order_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": true,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "order_date",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "order_status",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Cancelled",
+            "Completed",
+            "Pending",
+            "Refunded",
+            "Shipped"
+          ]
+        },
+        {
+          "name": "payment_method",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Bank Transfer",
+            "Credit Card",
+            "Debit Card",
+            "Gift Card",
+            "PayPal"
+          ]
+        },
+        {
+          "name": "total_amount",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "shipping_fee",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        }
+      ],
+      "primary_keys": [
+        "order_id"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "customer_id"
+          ],
+          "referred_table": "customers",
+          "referred_columns": [
+            "customer_id"
+          ]
+        }
+      ]
+    },
+    "order_items": {
+      "name": "order_items",
+      "description": "Line items for orders containing ordered product IDs, quantities, unit prices, and discount amounts.",
+      "row_count": 265,
+      "columns": [
+        {
+          "name": "item_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": true,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "product_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "unit_price",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "discount_amount",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        }
+      ],
+      "primary_keys": [
+        "item_id"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "order_id"
+          ],
+          "referred_table": "orders",
+          "referred_columns": [
+            "order_id"
+          ]
+        },
+        {
+          "constrained_columns": [
+            "product_id"
+          ],
+          "referred_table": "products",
+          "referred_columns": [
+            "product_id"
+          ]
+        }
+      ]
+    },
+    "products": {
+      "name": "products",
+      "description": "Product catalog including categories, unit prices, stock inventory, and product active status.",
+      "row_count": 50,
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": true,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "product_name",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "category",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Apparel",
+            "Books",
+            "Electronics",
+            "Footwear",
+            "Home & Kitchen",
+            "Sports"
+          ]
+        },
+        {
+          "name": "unit_price",
+          "type": "NUMERIC(10, 2)",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "inventory_count",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "status",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Active",
+            "Backorder",
+            "Discontinued",
+            "Out of Stock"
+          ]
+        }
+      ],
+      "primary_keys": [
+        "product_id"
+      ],
+      "foreign_keys": []
+    },
+    "support_tickets": {
+      "name": "support_tickets",
+      "description": "Customer support tickets with priority levels, current ticket statuses, and issue categories.",
+      "row_count": 50,
+      "columns": [
+        {
+          "name": "ticket_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": true,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        },
+        {
+          "name": "priority",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "High",
+            "Low",
+            "Medium",
+            "Urgent"
+          ]
+        },
+        {
+          "name": "ticket_status",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Closed",
+            "In Progress",
+            "Open",
+            "Resolved"
+          ]
+        },
+        {
+          "name": "issue_category",
+          "type": "VARCHAR",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": true,
+          "sample_values": [
+            "Account Access",
+            "Billing",
+            "Product Defect",
+            "Return Request",
+            "Shipping"
+          ]
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "nullable": false,
+          "is_primary_key": false,
+          "is_categorical": false,
+          "sample_values": []
+        }
+      ],
+      "primary_keys": [
+        "ticket_id"
+      ],
+      "foreign_keys": [
+        {
+          "constrained_columns": [
+            "customer_id"
+          ],
+          "referred_table": "customers",
+          "referred_columns": [
+            "customer_id"
+          ]
+        }
+      ]
+    }
+  }
+}
