@@ -91,12 +91,17 @@ pip install -r requirements.txt
 
 ### 2. Optional: Configure LLM API Keys
 
-Set your API key as an environment variable (the system will use `gpt-4o` or `claude-3-5-sonnet` if set, and automatically falls back to an offline rule-based generator if no key is provided):
+Set your preferred API key as an environment variable (the system checks in priority order: `ANTHROPIC_API_KEY` -> `OPENAI_API_KEY` -> `GROQ_API_KEY` -> offline fallback):
 
 ```bash
-export OPENAI_API_KEY="sk-..."
-# or
+# Anthropic Claude (Default model: claude-3-5-sonnet-20241022)
 export ANTHROPIC_API_KEY="sk-ant-..."
+
+# or OpenAI GPT-4o (Default model: gpt-4o)
+export OPENAI_API_KEY="sk-..."
+
+# or Groq Llama 3.3 (Default model: llama-3.3-70b-versatile)
+export GROQ_API_KEY="gsk_..."
 ```
 
 ### 3. Run Full Pipeline

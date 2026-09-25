@@ -91,13 +91,35 @@ def validate_sql_syntax(sql: str) -> Tuple[bool, Optional[str]]:
 def _call_llm_structured(prompt: str) -> GeneratedSQL:
     """
     Calls the configured LLM using the `instructor` library.
-    Reads API keys from environment variables (OPENAI_API_KEY or ANTHROPIC_API_KEY).
-    Falls back to a deterministic schema-aware generator if no key is set.
+    Checks API keys with priority:
+      1. ANTHROPIC_API_KEY (Claude)
+      2. OPENAI_API_KEY (GPT-4o)
+      3. GROQ_API_KEY (llama-3.3-70b-versatile via Groq's OpenAI-compatible endpoint)
+      4. Offline fallback generator
     """
-    openai_key = os.environ.get("OPENAI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
 
-    if openai_key:
+    if anthropic_key:
+        import anthropic
+        import instructor
+        client = instructor.from_anthropic(anthropic.Anthropic(api_key=anthropic_key))
+        model_name = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+
+        system_msg = "You are an expert Text-to-SQL engineer for DuckDB. Generate structured SQL according to the schema."
+        result = client.messages.create(
+            model=model_name,
+            max_tokens=1024,
+            response_model=GeneratedSQL,
+            messages=[
+                {"role": "user", "content": f"{system_msg}\n\n{prompt}"}
+            ],
+            temperature=0.0
+        )
+        return result
+
+    elif openai_key:
         import openai
         import instructor
         client = instructor.from_openai(openai.OpenAI(api_key=openai_key))
@@ -115,19 +137,24 @@ def _call_llm_structured(prompt: str) -> GeneratedSQL:
         )
         return result
 
-    elif anthropic_key:
-        import anthropic
+    elif groq_key:
+        import openai
         import instructor
-        client = instructor.from_anthropic(anthropic.Anthropic(api_key=anthropic_key))
-        model_name = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+        client = instructor.from_openai(
+            openai.OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key
+            )
+        )
+        model_name = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 
         system_msg = "You are an expert Text-to-SQL engineer for DuckDB. Generate structured SQL according to the schema."
-        result = client.messages.create(
+        result = client.chat.completions.create(
             model=model_name,
-            max_tokens=1024,
             response_model=GeneratedSQL,
             messages=[
-                {"role": "user", "content": f"{system_msg}\n\n{prompt}"}
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.0
         )
