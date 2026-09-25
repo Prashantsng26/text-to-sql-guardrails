@@ -1,6 +1,6 @@
-# Text-to-SQL System: Phase 1 & Phase 2
+# Text-to-SQL System: Phases 1, 2 & 3
 
-An enterprise-grade Text-to-SQL pipeline with schema-aware prompt engineering, LLM structured generation (`instructor`), AST-based SQL syntax validation (`sqlparse`), multi-rule guardrail safety verification, and dual-isolated sandbox execution.
+An enterprise-grade Text-to-SQL pipeline with schema-aware prompt engineering, LLM structured generation (`instructor`), AST-based SQL syntax validation (`sqlparse`), multi-rule guardrail safety verification, dual-isolated sandbox execution, and a multi-faceted hallucination detection & explainable confidence scoring engine.
 
 ---
 
@@ -41,10 +41,20 @@ An enterprise-grade Text-to-SQL pipeline with schema-aware prompt engineering, L
                                         │                │
                              [Allowed]  │                │ [Blocked]
                                         ▼                ▼
-                     ┌───────────────────────┐   ┌───────────────────────┐
-                     │ STAGE 6: Sandbox Exec │   │ Log to JSONL          │
-                     │ (sandbox_executor.py) │   │ (guardrail_log.jsonl) │
-                     └───────────────────────┘   └───────────────────────┘
+                        ┌───────────────────────┐   ┌───────────────────────┐
+                        │ STAGE 6: Sandbox Exec │   │ Log to JSONL          │
+                        │ (sandbox_executor.py) │   │ (guardrail_log.jsonl) │
+                        └───────────────┬───────┘   └───────────────────────┘
+                                        │
+                                        ▼
+                        ┌────────────────────────────────────────────────┐
+                        │   STAGE 7: Hallucination Detection & Scoring   │
+                        │   (hallucination_detector.py)                  │
+                        │   - Back-Translation Verification (MiniLM)     │
+                        │   - Domain & Boundary Result Sanity Checking   │
+                        │   - Multi-Query Sandbox Cross-Validation       │
+                        │   - Explainable Confidence Scoring Breakdown   │
+                        └────────────────────────────────────────────────┘
 ```
 
 ---
@@ -59,7 +69,13 @@ An enterprise-grade Text-to-SQL pipeline with schema-aware prompt engineering, L
 - [`sql_generator.py`](file:///Users/prashantsingh/Desktop/Major%20Project/sql_generator.py) — Uses `instructor` with Pydantic for structured generation (`GeneratedSQL`: `sql`, `explanation`, `confidence`, `tables_used`, `columns_used`). Validates SQL syntax with `sqlparse` and DuckDB parser, retrying once on syntax error before failing.
 - [`guardrails.py`](file:///Users/prashantsingh/Desktop/Major%20Project/guardrails.py) — Configurable multi-rule safety engine: blocks DDL, blocks DML writes, auto-injects `LIMIT 1000`, enforces max subquery depth ($\le 3$), and validates row scan estimations via `EXPLAIN`. Logs blocked queries to `guardrail_log.jsonl`.
 - [`sandbox_executor.py`](file:///Users/prashantsingh/Desktop/Major%20Project/sandbox_executor.py) — Executes queries within a read-only DuckDB connection (`read_only=True`, `PRAGMA enable_external_access = false;`) inside an explicit transaction rolled back immediately after result retrieval.
-- [`main.py`](file:///Users/prashantsingh/Desktop/Major%20Project/main.py) — End-to-end CLI orchestrating the full 6-stage pipeline.
+- [`hallucination_detector.py`](file:///Users/prashantsingh/Desktop/Major%20Project/hallucination_detector.py) — Phase 3 Hallucination Detection & Explainable Confidence Scorer:
+  1. **Back-Translation Verification**: Re-translates SQL to a question and computes cosine similarity with sentence embeddings (`all-MiniLM-L6-v2`).
+  2. **Result Sanity Checking**: Validates non-negative counts/amounts, plausible dates, non-empty joins on populated tables, and unexpected NULL ratios on NOT NULL columns.
+  3. **Multi-Query Cross-Validation**: Generates alternative query strategies (CTEs/joins/aggregations), executes both in the sandbox, and compares scalar / set results (skipping trivial lookups).
+  4. **Explainable Confidence Scorer**: Transparent weighted scoring combining hard-gate syntax validity, multi-query agreement, semantic alignment, domain sanity checks, and model confidence.
+- [`main.py`](file:///Users/prashantsingh/Desktop/Major%20Project/main.py) — End-to-end CLI orchestrating the full 7-stage pipeline.
+- [`test_phase3.py`](file:///Users/prashantsingh/Desktop/Major%20Project/test_phase3.py) — Comprehensive unit test suite for Phase 3 hallucination detector and scoring engine.
 - [`guardrail_log.jsonl`](file:///Users/prashantsingh/Desktop/Major%20Project/guardrail_log.jsonl) — Audit log of all guardrail violations with timestamps and rules triggered.
 
 ---
@@ -107,7 +123,7 @@ export GROQ_API_KEY="gsk_..."
 ### 3. Run Full Pipeline
 
 ```bash
-# Run all sample queries (including guardrail violation tests)
+# Run all sample queries (including guardrail violation & hallucination test cases)
 python main.py
 
 # Run a custom natural language query
@@ -118,15 +134,21 @@ python main.py --question "Which product categories generated the most sales in 
 
 ## 🧪 Independent Module Testing
 
-Each Phase 2 component is independently testable:
+Each component is independently testable:
 
 ```bash
 # 1. Test Structured SQL Generation & Syntax Retry
 python sql_generator.py
 
-# 2. Test Guardrails (DDL/DML block, LIMIT injection, subquery depth)
+# 2. Test Guardrails (DDL/DML block, LIMIT injection, subquery depth, row scan)
 python guardrails.py
 
 # 3. Test Sandbox Execution & Transaction Rollback
 python sandbox_executor.py
+
+# 4. Test Phase 3 Hallucination Detector & Confidence Scorer
+python hallucination_detector.py
+
+# 5. Run Phase 3 Unit Tests
+python test_phase3.py
 ```

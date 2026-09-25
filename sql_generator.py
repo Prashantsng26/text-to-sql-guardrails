@@ -165,20 +165,59 @@ def _call_llm_structured(prompt: str) -> GeneratedSQL:
         return _fallback_offline_generator(prompt)
 
 
+def _extract_user_question_from_prompt(prompt: str) -> str:
+    """Extracts the specific user question from the constructed master prompt."""
+    marker = "### User Question:"
+    if marker in prompt:
+        after_marker = prompt.split(marker, 1)[1]
+        if "### DuckDB SQL Query:" in after_marker:
+            return after_marker.split("### DuckDB SQL Query:", 1)[0].strip()
+        if "### Alternative Formulation Directive:" in after_marker:
+            return after_marker.split("### Alternative Formulation Directive:", 1)[0].strip()
+        return after_marker.strip()
+    return prompt.strip()
+
+
 def _fallback_offline_generator(prompt: str) -> GeneratedSQL:
     """
     Deterministic rule-based generator used when no external LLM API key is configured.
-    Ensures end-to-end tests run seamlessly in offline environments.
+    Ensures end-to-end tests run seamlessly in offline environments by inspecting
+    the actual extracted user question (not the entire prompt with schema DDL & few-shots).
     """
-    prompt_lower = prompt.lower()
-    
-    if "email" in prompt_lower and "germany" in prompt_lower and "platinum" in prompt_lower:
-        sql = "SELECT customer_id, first_name, last_name, email, country, customer_tier, created_at FROM customers WHERE customer_tier = 'Platinum' AND country = 'Germany';"
-        explanation = "Filter customers by Platinum tier and Germany."
+    user_q = _extract_user_question_from_prompt(prompt)
+    q_lower = user_q.lower()
+    is_alt = "alternative formulation directive" in prompt.lower() or "alternative" in prompt.lower()
+
+    if ("email" in q_lower or "sign-up" in q_lower or "registered" in q_lower) and "germany" in q_lower and "platinum" in q_lower:
+        if is_alt:
+            sql = """WITH plat_germany AS (
+    SELECT customer_id, first_name, last_name, email, country, customer_tier, created_at
+    FROM customers
+    WHERE customer_tier = 'Platinum' AND country = 'Germany'
+)
+SELECT * FROM plat_germany;"""
+        else:
+            sql = "SELECT customer_id, first_name, last_name, email, country, customer_tier, created_at FROM customers WHERE customer_tier = 'Platinum' AND country = 'Germany';"
+        explanation = "Filter customers table by Platinum tier and Germany."
         tables = ["customers"]
         cols = ["customer_id", "first_name", "last_name", "email", "country", "customer_tier", "created_at"]
-    elif "product categories" in prompt_lower and "highest total quantity" in prompt_lower:
-        sql = """SELECT p.category, SUM(oi.quantity) AS total_quantity_sold
+
+    elif "product categories" in q_lower and ("highest total quantity" in q_lower or "quantity sold" in q_lower or "sales" in q_lower):
+        if is_alt:
+            sql = """WITH order_qtys AS (
+    SELECT oi.product_id, SUM(oi.quantity) AS total_units
+    FROM order_items oi
+    JOIN orders o ON oi.order_id = o.order_id
+    WHERE o.order_status = 'Completed'
+    GROUP BY oi.product_id
+)
+SELECT p.category, SUM(oq.total_units) AS total_quantity_sold
+FROM products p
+JOIN order_qtys oq ON p.product_id = oq.product_id
+GROUP BY p.category
+ORDER BY total_quantity_sold DESC;"""
+        else:
+            sql = """SELECT p.category, SUM(oi.quantity) AS total_quantity_sold
 FROM products p
 JOIN order_items oi ON p.product_id = oi.product_id
 JOIN orders o ON oi.order_id = o.order_id
@@ -188,33 +227,66 @@ ORDER BY total_quantity_sold DESC;"""
         explanation = "Join products, order_items, and orders to calculate total quantity sold per category for completed orders."
         tables = ["products", "order_items", "orders"]
         cols = ["category", "quantity", "product_id", "order_id", "order_status"]
-    elif "revenue" in prompt_lower:
-        sql = "SELECT ROUND(SUM(total_amount), 2) AS total_revenue FROM orders WHERE order_status = 'Completed';"
-        explanation = "Calculate total gross revenue from completed orders."
+
+    elif "revenue" in q_lower or "spent" in q_lower:
+        if is_alt:
+            sql = """WITH recent_completed_orders AS (
+    SELECT total_amount
+    FROM orders
+    WHERE order_status = 'Completed'
+      AND order_date >= CURRENT_DATE - INTERVAL '30 days'
+)
+SELECT ROUND(SUM(total_amount), 2) AS total_revenue FROM recent_completed_orders;"""
+        else:
+            sql = """SELECT ROUND(SUM(total_amount), 2) AS total_revenue
+FROM orders
+WHERE order_status = 'Completed'
+  AND order_date >= CURRENT_DATE - INTERVAL '30 days';"""
+        explanation = "Calculate total gross revenue from completed orders in the last 30 days."
         tables = ["orders"]
-        cols = ["total_amount", "order_status"]
-    elif "support ticket" in prompt_lower or "tickets" in prompt_lower:
-        if "delete" in prompt_lower:
-            # For testing guardrail block on malicious prompt
+        cols = ["total_amount", "order_status", "order_date"]
+
+    elif "support ticket" in q_lower or "tickets" in q_lower or "billing" in q_lower:
+        if "delete" in q_lower:
             sql = "DELETE FROM support_tickets WHERE ticket_status = 'Closed';"
             explanation = "Delete closed support tickets as requested."
             tables = ["support_tickets"]
             cols = ["ticket_status"]
         else:
-            sql = "SELECT ticket_id, customer_id, priority, ticket_status, issue_category FROM support_tickets WHERE priority = 'Urgent' AND (ticket_status = 'Open' OR ticket_status = 'In Progress');"
-            explanation = "Filter urgent open or in-progress support tickets."
+            if is_alt:
+                sql = """WITH urgent_billing AS (
+    SELECT ticket_id, customer_id, priority, ticket_status, issue_category
+    FROM support_tickets
+    WHERE priority = 'Urgent' AND issue_category = 'Billing'
+)
+SELECT * FROM urgent_billing WHERE ticket_status IN ('Open', 'In Progress');"""
+            else:
+                sql = """SELECT ticket_id, customer_id, priority, ticket_status, issue_category
+FROM support_tickets
+WHERE priority = 'Urgent'
+  AND issue_category = 'Billing'
+  AND (ticket_status = 'Open' OR ticket_status = 'In Progress');"""
+            explanation = "Filter urgent open or in-progress support tickets concerning billing."
             tables = ["support_tickets"]
             cols = ["ticket_id", "customer_id", "priority", "ticket_status", "issue_category"]
-    elif "delete" in prompt_lower or "drop" in prompt_lower:
+
+    elif "delete" in q_lower or "drop" in q_lower or "remove" in q_lower:
         sql = "DELETE FROM customers WHERE customer_id NOT IN (SELECT customer_id FROM orders);"
         explanation = "Attempt to delete inactive customers."
         tables = ["customers", "orders"]
         cols = ["customer_id"]
+
+    elif "affiliate" in q_lower or "review ratings" in q_lower or "coupon" in q_lower or "asia" in q_lower:
+        sql = "SELECT order_id, customer_id, total_amount, payment_method FROM orders LIMIT 10;"
+        explanation = "Attempted query on orders (requested affiliate/reviews/coupons not in schema)."
+        tables = ["orders"]
+        cols = ["order_id", "customer_id", "total_amount", "payment_method"]
+
     else:
-        sql = "SELECT * FROM customers LIMIT 10;"
-        explanation = "Default query selecting top 10 customers."
+        sql = "SELECT customer_id, email, customer_tier FROM customers LIMIT 10;"
+        explanation = f"Generic fallback query for question: {user_q[:50]}"
         tables = ["customers"]
-        cols = ["*"]
+        cols = ["customer_id", "email", "customer_tier"]
 
     return GeneratedSQL(
         sql=sql.strip(),
