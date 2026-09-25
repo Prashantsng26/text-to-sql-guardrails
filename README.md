@@ -100,7 +100,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # or OpenAI GPT-4o (Default model: gpt-4o)
 export OPENAI_API_KEY="sk-..."
 
-# or Groq Llama 3.3 (Default model: llama-3.3-70b-versatile)
+# or Groq (Default model: openai/gpt-oss-120b)
 export GROQ_API_KEY="gsk_..."
 ```
 

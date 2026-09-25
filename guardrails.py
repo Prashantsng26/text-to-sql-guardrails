@@ -154,37 +154,86 @@ def _check_and_inject_limit(sql: str, max_limit: int = 1000) -> Tuple[str, bool]
 
 def _check_explain_scan_rows(sql: str, db_path: str, max_rows: int) -> Tuple[bool, Optional[str], Dict[str, Any]]:
     """
-    Runs EXPLAIN on the read-only database to estimate query scan size.
+    Runs EXPLAIN on the read-only database to estimate query scan / cardinality size.
     Returns (is_exceeded, violation_message, explain_stats).
+    Fails closed (blocks query) if database connection or EXPLAIN fails.
     """
     if not os.path.exists(db_path):
-        return False, None, {"note": "db_path does not exist for EXPLAIN"}
+        return (
+            True,
+            f"Database file '{db_path}' not found for EXPLAIN row scan verification.",
+            {"error": "db_not_found", "failed_closed": True}
+        )
 
+    con = None
+    cleaned_sql = sql.strip().rstrip(";")
     try:
         con = duckdb.connect(db_path, read_only=True)
-        cleaned_sql = sql.strip().rstrip(";")
-        explain_rows = con.execute(f"EXPLAIN {cleaned_sql}").fetchall()
-        con.close()
-
-        explain_text = "\n".join(str(r) for r in explain_rows)
-        
-        # Check for estimated cardinalities in DuckDB explain output (e.g. ~EC: 1000000)
-        ec_matches = re.findall(r"EC:\s*(\d+)", explain_text)
         max_estimated_cardinality = 0
-        if ec_matches:
-            max_estimated_cardinality = max(int(m) for m in ec_matches)
+        total_scan_rows = 0
 
-        if max_estimated_cardinality > max_rows:
+        # Primary method: EXPLAIN (FORMAT JSON)
+        try:
+            res_json = con.execute(f"EXPLAIN (FORMAT JSON) {cleaned_sql};").fetchall()
+            if res_json and len(res_json[0]) > 1:
+                plan_data = json.loads(res_json[0][1])
+
+                def traverse(node):
+                    nonlocal max_estimated_cardinality, total_scan_rows
+                    if isinstance(node, dict):
+                        extra = node.get("extra_info", {})
+                        card_str = extra.get("Estimated Cardinality")
+                        if card_str is not None:
+                            try:
+                                card_val = int(card_str)
+                                max_estimated_cardinality = max(max_estimated_cardinality, card_val)
+                                if "SCAN" in node.get("name", "").upper():
+                                    total_scan_rows += card_val
+                            except (ValueError, TypeError):
+                                pass
+                        for child in node.get("children", []):
+                            traverse(child)
+                    elif isinstance(node, list):
+                        for item in node:
+                            traverse(item)
+
+                traverse(plan_data)
+        except Exception:
+            # Fallback method: Text format EXPLAIN
+            res_text = con.execute(f"EXPLAIN {cleaned_sql};").fetchall()
+            explain_text = "\n".join(str(r[1] if len(r) > 1 else r[0]) for r in res_text)
+
+            # Match ~265 rows, 265 rows, or EC: 265
+            row_matches = re.findall(r"(?:~|\bEC:\s*)(\d+)\s*(?:rows)?", explain_text, flags=re.IGNORECASE)
+            if row_matches:
+                numbers = [int(m) for m in row_matches]
+                max_estimated_cardinality = max(numbers)
+                total_scan_rows = sum(numbers)
+
+        effective_estimated_rows = max_estimated_cardinality if max_estimated_cardinality > 0 else total_scan_rows
+
+        if effective_estimated_rows > max_rows:
             return (
                 True,
-                f"Estimated row scan ({max_estimated_cardinality:,}) exceeds maximum allowed threshold of {max_rows:,} rows.",
-                {"estimated_cardinality": max_estimated_cardinality, "explain_text": explain_text[:500]}
+                f"Estimated row scan ({effective_estimated_rows:,}) exceeds maximum allowed threshold of {max_rows:,} rows.",
+                {"estimated_cardinality": effective_estimated_rows, "max_threshold": max_rows}
             )
 
-        return False, None, {"estimated_cardinality": max_estimated_cardinality}
+        return False, None, {"estimated_cardinality": effective_estimated_rows, "max_threshold": max_rows}
+
     except Exception as e:
-        # If explain fails due to invalid syntax or other issue, return note
-        return False, None, {"explain_error": str(e)}
+        # Fail closed on any exception during explain
+        return (
+            True,
+            f"Row scan verification failed during EXPLAIN execution: {str(e)}",
+            {"explain_error": str(e), "failed_closed": True}
+        )
+    finally:
+        if con:
+            try:
+                con.close()
+            except Exception:
+                pass
 
 
 def _log_guardrail_violation(
@@ -275,7 +324,7 @@ def check_guardrails(
 
     # 5. Rule: Max Estimated Row Scan (EXPLAIN plan)
     if active_config.get("check_scan_rows", True) and not violations:
-        max_scan = active_config.get("max_estimated_scan_rows", 100000)
+        max_scan = active_config.get("max_scan_rows") or active_config.get("max_estimated_scan_rows", 100000)
         db_path = active_config.get("db_path", DEFAULT_DB_PATH)
         is_exceeded, scan_violation, scan_stats = _check_explain_scan_rows(sanitized_sql, db_path, max_scan)
         details["scan_stats"] = scan_stats
@@ -333,5 +382,12 @@ if __name__ == "__main__":
     res4 = check_guardrails(q4)
     print(f"\nTest 4 (Subquery Depth > 3): Allowed={res4.allowed}")
     print(f"Violations: {res4.violations}")
+
+    # Test 5: Row scan threshold exceeded
+    q5 = "SELECT * FROM order_items;"
+    res5 = check_guardrails(q5, {"max_scan_rows": 10})
+    print(f"\nTest 5 (Row Scan > 10 rows): Allowed={res5.allowed}")
+    print(f"Violations: {res5.violations}")
+    print(f"Scan Stats: {res5.details.get('scan_stats')}")
 
     print(f"\nCheck {GUARDRAIL_LOG_PATH} for logged violations.")

@@ -94,7 +94,7 @@ def _call_llm_structured(prompt: str) -> GeneratedSQL:
     Checks API keys with priority:
       1. ANTHROPIC_API_KEY (Claude)
       2. OPENAI_API_KEY (GPT-4o)
-      3. GROQ_API_KEY (llama-3.3-70b-versatile via Groq's OpenAI-compatible endpoint)
+      3. GROQ_API_KEY (openai/gpt-oss-120b via Groq's OpenAI-compatible endpoint)
       4. Offline fallback generator
     """
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
@@ -146,7 +146,7 @@ def _call_llm_structured(prompt: str) -> GeneratedSQL:
                 api_key=groq_key
             )
         )
-        model_name = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+        model_name = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
         system_msg = "You are an expert Text-to-SQL engineer for DuckDB. Generate structured SQL according to the schema."
         result = client.chat.completions.create(
